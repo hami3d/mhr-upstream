@@ -155,19 +155,25 @@ async function fetchWithBrowser(url, method, headers) {
     
     // Navigate and wait for Cloudflare challenge to complete
     const response = await page.goto(url, {
-      waitUntil: "networkidle0",
-      timeout: 90000,
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
     });
     
     if (!response) {
       throw new Error("No response from page");
     }
     
-    // Wait additional time for any challenge completion
-    await page.waitForTimeout(3000);
+    // Wait for challenge to complete - check if we're on a challenge page
+    const currentUrl = page.url();
+    if (currentUrl.includes('challenge') || currentUrl.includes('cdn-cgi')) {
+      // Wait longer for challenge
+      await new Promise(resolve => setTimeout(resolve, 8000));
+    } else {
+      // Normal page, shorter wait
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
     
     // Get final page content after any redirects/challenges
-    const finalUrl = page.url();
     const content = await page.content();
     
     // Get response headers from the navigation response
