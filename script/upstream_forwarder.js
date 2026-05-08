@@ -142,21 +142,36 @@ async function fetchWithBrowser(url, method, headers) {
   const page = await browser.newPage();
   
   try {
+    // Stealth mode - hide automation
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      window.chrome = { runtime: {} };
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    });
+    
     await page.setExtraHTTPHeaders(headers);
     await page.setViewport({ width: 1920, height: 1080 });
+    await page.setUserAgent(headers["User-Agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
     
-    // Wait for Cloudflare challenge to complete
+    // Navigate and wait for Cloudflare
     const response = await page.goto(url, {
-      waitUntil: "networkidle2",  // Wait for network to be idle (challenge solved)
-      timeout: 60000,  // 60 seconds for Cloudflare to solve
+      waitUntil: "networkidle2",
+      timeout: 60000,
     });
     
     if (!response) {
       throw new Error("No response from page");
     }
     
-    // Wait extra time for any remaining JavaScript
-    await page.waitForTimeout(2000);
+    // Check if still on challenge page
+    const currentUrl = page.url();
+    if (currentUrl.includes('challenge-platform') || currentUrl.includes('cdn-cgi')) {
+      // Still on challenge, wait more
+      await page.waitForTimeout(5000);
+    } else {
+      await page.waitForTimeout(2000);
+    }
     
     const status = response.status();
     const responseHeaders = response.headers();
