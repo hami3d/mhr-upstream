@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node script/forwarder-enhanced.js"
+    "start": "node script/upstream_forwarder.js"
   },
   "engines": {
     "node": ">=18"

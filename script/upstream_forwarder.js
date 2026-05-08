@@ -23,7 +23,7 @@ const http = require("http");
 
 const AUTH_KEY = process.env.AUTH_KEY || "";
 const PORT = parseInt(process.env.PORT, 10) || 8787;
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST || "0.0.0.0";  // Railway needs 0.0.0.0
 
 if (!AUTH_KEY || AUTH_KEY.length < 32) {
   console.error("FATAL: AUTH_KEY env var missing or shorter than 32 chars.");
@@ -53,23 +53,30 @@ const STATUS_PAGE =
   "</body></html>";
 
 const server = http.createServer(async (req, res) => {
+  // Health check
+  if (req.method === "GET" && (req.url === "/" || req.url === "")) {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(STATUS_PAGE);
+    return;
+  }
+
+  // Reject WebSocket upgrades early (before try-catch)
+  if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
+    sendJson(res, 400, { e: "WebSocket not supported" });
+    return;
+  }
+
+  if (req.method !== "POST" || req.url !== "/fwd") {
+    sendJson(res, 404, { e: "not found" });
+    return;
+  }
+
+  if (req.headers["x-upstream-auth"] !== AUTH_KEY) {
+    sendJson(res, 401, { e: "unauthorized" });
+    return;
+  }
+
   try {
-    if (req.method === "GET" && (req.url === "/" || req.url === "")) {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(STATUS_PAGE);
-      return;
-    }
-
-    if (req.method !== "POST" || req.url !== "/fwd") {
-      sendJson(res, 404, { e: "not found" });
-      return;
-    }
-
-    if (req.headers["x-upstream-auth"] !== AUTH_KEY) {
-      sendJson(res, 401, { e: "unauthorized" });
-      return;
-    }
-
     const raw = await readBody(req);
     let body;
     try {
