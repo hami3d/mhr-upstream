@@ -145,14 +145,18 @@ async function fetchWithBrowser(url, method, headers) {
     await page.setExtraHTTPHeaders(headers);
     await page.setViewport({ width: 1920, height: 1080 });
     
+    // Wait for Cloudflare challenge to complete
     const response = await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
+      waitUntil: "networkidle2",  // Wait for network to be idle (challenge solved)
+      timeout: 60000,  // 60 seconds for Cloudflare to solve
     });
     
     if (!response) {
       throw new Error("No response from page");
     }
+    
+    // Wait extra time for any remaining JavaScript
+    await page.waitForTimeout(2000);
     
     const status = response.status();
     const responseHeaders = response.headers();
