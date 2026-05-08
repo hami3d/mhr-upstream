@@ -60,9 +60,6 @@ async function getBrowser() {
   console.log("✓ Browser ready");
   return browser;
 }
-  '<h1>Forwarder <span style="color:#16a34a;font-weight:700">Active</span></h1>' +
-  "<p>Upstream forwarder for the relay Worker.</p>" +
-  "</body></html>";
 
 const server = http.createServer(async (req, res) => {
   // Health check
@@ -202,65 +199,6 @@ async function fetchWithNative(url, method, headers, bodyBase64, followRedirects
     b: Buffer.from(buffer).toString("base64"),
   };
 }
-    let body;
-    try {
-      body = JSON.parse(raw);
-    } catch (_) {
-      sendJson(res, 400, { e: "invalid json" });
-      return;
-    }
-
-    if (!body.u || typeof body.u !== "string" || !/^https?:\/\//i.test(body.u)) {
-      sendJson(res, 400, { e: "bad url" });
-      return;
-    }
-
-    const targetUrl = new URL(body.u);
-    const headers = {};
-    if (body.h && typeof body.h === "object") {
-      for (const [k, v] of Object.entries(body.h)) {
-        if (typeof v !== "string") continue;
-        if (SKIP_HEADERS.has(k.toLowerCase())) continue;
-        headers[k] = v;
-      }
-    }
-    headers["x-fwd-hop"] = "1";
-
-    const method = (body.m || "GET").toUpperCase();
-    const fetchOptions = {
-      method,
-      headers,
-      redirect: body.r === false ? "manual" : "follow"
-    };
-
-    if (body.b && !EMPTY_BODY_METHODS.has(method)) {
-      fetchOptions.body = Buffer.from(body.b, "base64");
-      fetchOptions.duplex = "half";
-    } else if (body.b && EMPTY_BODY_METHODS.has(method)) {
-      console.warn("Ignoring body on " + method + " " + targetUrl.hostname + targetUrl.pathname);
-    }
-
-    const resp = await fetchWithRetry(body.u, fetchOptions, method, targetUrl);
-
-    const buf = Buffer.from(await resp.arrayBuffer());
-    const responseHeaders = {};
-    resp.headers.forEach((v, k) => {
-      responseHeaders[k] = v;
-    });
-
-    sendJson(res, 200, {
-      s: resp.status,
-      h: responseHeaders,
-      b: buf.toString("base64")
-    });
-  } catch (err) {
-    sendJson(res, 500, { e: String(err && err.message || err) });
-  }
-});
-
-server.listen(PORT, HOST, () => {
-  console.log("upstream_forwarder listening on " + HOST + ":" + PORT);
-});
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
