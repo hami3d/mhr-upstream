@@ -10,7 +10,10 @@
 "use strict";
 
 const http = require("http");
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+
+puppeteer.use(StealthPlugin());
 
 const AUTH_KEY = process.env.AUTH_KEY || "";
 const PORT = parseInt(process.env.PORT, 10) || 8787;
@@ -142,40 +145,34 @@ async function fetchWithBrowser(url, method, headers) {
   const page = await browser.newPage();
   
   try {
-    // Stealth mode - hide automation
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-      window.chrome = { runtime: {} };
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    });
-    
+    // Set headers and viewport
     await page.setExtraHTTPHeaders(headers);
     await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent(headers["User-Agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
     
-    // Navigate and wait for Cloudflare
+    // Use provided User-Agent or default
+    const userAgent = headers["User-Agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    await page.setUserAgent(userAgent);
+    
+    // Navigate and wait for Cloudflare challenge to complete
     const response = await page.goto(url, {
-      waitUntil: "networkidle2",
-      timeout: 60000,
+      waitUntil: "networkidle0",
+      timeout: 90000,
     });
     
     if (!response) {
       throw new Error("No response from page");
     }
     
-    // Check if still on challenge page
-    const currentUrl = page.url();
-    if (currentUrl.includes('challenge-platform') || currentUrl.includes('cdn-cgi')) {
-      // Still on challenge, wait more
-      await page.waitForTimeout(5000);
-    } else {
-      await page.waitForTimeout(2000);
-    }
+    // Wait additional time for any challenge completion
+    await page.waitForTimeout(3000);
     
+    // Get final page content after any redirects/challenges
+    const finalUrl = page.url();
+    const content = await page.content();
+    
+    // Get response headers from the navigation response
     const status = response.status();
     const responseHeaders = response.headers();
-    const buffer = await response.buffer();
     
     await page.close();
     browserPages--;
@@ -183,7 +180,7 @@ async function fetchWithBrowser(url, method, headers) {
     return {
       s: status,
       h: responseHeaders,
-      b: buffer.toString("base64"),
+      b: Buffer.from(content).toString("base64"),
     };
   } catch (err) {
     await page.close();
