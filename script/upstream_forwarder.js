@@ -10,10 +10,6 @@
 "use strict";
 
 const http = require("http");
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-
-puppeteer.use(StealthPlugin());
 
 const AUTH_KEY = process.env.AUTH_KEY || "";
 const PORT = parseInt(process.env.PORT, 10) || 8787;
@@ -41,28 +37,8 @@ const STATUS_PAGE =
   "<!DOCTYPE html><html><head><title>Forwarder Active</title></head>" +
   '<body style="font-family:sans-serif;max-width:600px;margin:40px auto">' +
   '<h1>Forwarder <span style="color:#16a34a;font-weight:700">Active</span></h1>' +
-  "<p>Browser-based forwarder with Cloudflare bypass.</p>" +
+  "<p>Simple forwarder with native fetch.</p>" +
   "</body></html>";
-
-let browser = null;
-let browserPages = 0;
-const MAX_PAGES = 3;
-
-async function getBrowser() {
-  if (browser) return browser;
-  console.log("Launching browser...");
-  browser = await puppeteer.launch({
-    headless: "new",
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-    ],
-  });
-  console.log("✓ Browser ready");
-  return browser;
-}
 
 const server = http.createServer(async (req, res) => {
   // Health check
@@ -118,14 +94,8 @@ const server = http.createServer(async (req, res) => {
 
     const method = (body.m || "GET").toUpperCase();
     
-    let result;
-    
-    // Use browser if under page limit, otherwise fallback to fetch
-    if (browserPages < MAX_PAGES) {
-      result = await fetchWithBrowser(body.u, method, headers);
-    } else {
-      result = await fetchWithNative(body.u, method, headers, body.b, body.r);
-    }
+    // Use native fetch for all requests
+    const result = await fetchWithNative(body.u, method, headers, body.b, body.r);
     
     const elapsed = Date.now() - startTime;
     console.log(`${method} ${targetUrl.hostname}${targetUrl.pathname} → ${result.s} (${elapsed}ms)`);
@@ -137,63 +107,6 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 500, { e: err.message });
   }
 });
-
-async function fetchWithBrowser(url, method, headers) {
-  const browser = await getBrowser();
-  browserPages++;
-  
-  const page = await browser.newPage();
-  
-  try {
-    // Set headers and viewport
-    await page.setExtraHTTPHeaders(headers);
-    await page.setViewport({ width: 1920, height: 1080 });
-    
-    // Use provided User-Agent or default
-    const userAgent = headers["User-Agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    await page.setUserAgent(userAgent);
-    
-    // Navigate and wait for Cloudflare challenge to complete
-    const response = await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
-    });
-    
-    if (!response) {
-      throw new Error("No response from page");
-    }
-    
-    // Wait for challenge to complete - check if we're on a challenge page
-    const currentUrl = page.url();
-    if (currentUrl.includes('challenge') || currentUrl.includes('cdn-cgi')) {
-      // Wait longer for challenge
-      await new Promise(resolve => setTimeout(resolve, 8000));
-    } else {
-      // Normal page, shorter wait
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-    
-    // Get final page content after any redirects/challenges
-    const content = await page.content();
-    
-    // Get response headers from the navigation response
-    const status = response.status();
-    const responseHeaders = response.headers();
-    
-    await page.close();
-    browserPages--;
-    
-    return {
-      s: status,
-      h: responseHeaders,
-      b: Buffer.from(content).toString("base64"),
-    };
-  } catch (err) {
-    await page.close();
-    browserPages--;
-    throw err;
-  }
-}
 
 async function fetchWithNative(url, method, headers, bodyBase64, followRedirects) {
   const options = {
@@ -239,7 +152,6 @@ function sendJson(res, status, obj) {
 
 process.on("SIGTERM", async () => {
   console.log("Shutting down...");
-  if (browser) await browser.close();
   process.exit(0);
 });
 
